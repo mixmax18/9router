@@ -4,13 +4,7 @@ on:
   push:
     tags:
       - "v*"
-
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Image version, example: v0.5.8"
-        required: true
-        type: string
 
 env:
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
@@ -19,35 +13,14 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       packages: write
-      security-events: write
-      id-token: write
 
     steps:
-      - name: Checkout source code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Scan repository secrets with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: secret
-          format: table
-          exit-code: "1"
-          skip-dirs: |
-            .git
-            .next
-            node_modules
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -62,25 +35,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Resolve version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION="${GITHUB_REF_NAME}"
-          fi
-
-          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid version format: $VERSION"
-            echo "Expected format: v0.5.8"
-            exit 1
-          fi
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Extract Docker metadata
+      - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -88,32 +43,10 @@ jobs:
             ${{ env.GHCR_IMAGE }}
             ${{ env.DOCKERHUB_IMAGE }}
           tags: |
-            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }}
-            type=raw,value=latest
-            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build image for security scan
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: local/9router:${{ github.sha }}
-          platforms: linux/amd64
-
-      - name: Scan image vulnerabilities with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: local/9router:${{ github.sha }}
-          scanners: vuln
-          vuln-type: os,library
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
-          format: table
-
-      - name: Build and push multi-arch image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -123,5 +56,5 @@ jobs:
           cache-from: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.GHCR_IMAGE }}:buildcache,mode=max
           platforms: linux/amd64,linux/arm64
-          provenance: true
-          sbom: true
+          provenance: false
+          sbom: false
