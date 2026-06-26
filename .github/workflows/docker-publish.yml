@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+
   workflow_dispatch:
     inputs:
       version:
@@ -29,7 +30,6 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # Scan source code secrets, bukan hasil bundle .next di image.
       - name: Scan repository secrets with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -101,7 +101,6 @@ jobs:
           tags: local/9router:${{ github.sha }}
           platforms: linux/amd64
 
-      # Scan vulnerability image saja. Secret scan sudah dipisah di source repo.
       - name: Scan image vulnerabilities with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
         with:
