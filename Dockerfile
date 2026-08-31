@@ -52,5 +52,6 @@ RUN apk --no-cache upgrade && apk --no-cache add su-exec && \
 
 EXPOSE 20128
 
+USER 1000
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["node", "custom-server.js"]
