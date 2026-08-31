@@ -12,7 +12,18 @@ async function loadSql() {
 
 export async function createSqlJsAdapter(filePath) {
   const SQLLib = await loadSql();
-  const buf = fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
+  const path = require('path');
+  const resolvedPath = path.resolve(filePath);
+  if (path.isAbsolute(filePath) && filePath.includes('..')) {
+    throw new Error('Invalid file path');
+  }
+  if (path.relative('.', resolvedPath).startsWith('..') || path.isAbsolute(resolvedPath.slice(0, 1) === '/' ? resolvedPath : '')) {
+    const normalized = path.normalize(filePath);
+    if (normalized.includes('..') || path.isAbsolute(filePath)) {
+      throw new Error('Invalid file path');
+    }
+  }
+  const buf = fs.existsSync(resolvedPath) ? fs.readFileSync(resolvedPath) : null;
   const db = new SQLLib.Database(buf);
   db.exec(PRAGMA_SQL);
   // Schema is created/synced by migrate.js after adapter init
@@ -23,7 +34,7 @@ export async function createSqlJsAdapter(filePath) {
 
   function persist() {
     const data = db.export();
-    fs.writeFileSync(filePath, Buffer.from(data));
+    fs.writeFileSync(resolvedPath, Buffer.from(data));
     dirty = false;
   }
 

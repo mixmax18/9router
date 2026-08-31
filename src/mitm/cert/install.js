@@ -31,6 +31,7 @@ const ROOT_CA_CN = "9Router MITM Root CA";
 
 // Get SHA1 fingerprint from cert file using Node.js crypto
 function getCertFingerprint(certPath) {
+  if (certPath.includes('..') || path.isAbsolute(certPath)) { throw new Error('Invalid path'); }
   const pem = fs.readFileSync(certPath, "utf-8");
   const der = Buffer.from(pem.replace(/-----[^-]+-----/g, "").replace(/\s/g, ""), "base64");
   return crypto.createHash("sha1").update(der).digest("hex").toUpperCase().match(/.{2}/g).join(":");
