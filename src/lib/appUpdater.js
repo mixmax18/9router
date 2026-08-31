@@ -142,7 +142,7 @@ export async function killAppProcesses() {
   const platform = process.platform;
 
   pids.forEach(pid => {
-    if (!/^[a-zA-Z0-9_\-\./\\]+$/.test(pid)) return;
+    if (!/^[0-9]+$/.test(pid)) return;
     try {
       if (platform === "win32") {
         execSync(`taskkill /F /PID ${pid} 2>nul`, { stdio: "ignore", shell: true, windowsHide: true, timeout: 3000 });
