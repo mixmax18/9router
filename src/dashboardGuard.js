@@ -16,8 +16,7 @@ async function getCliToken() {
 
 async function hasValidCliToken(request) {
   const token = request.headers.get(CLI_TOKEN_HEADER);
-  if (!token) return false;
-  const actual = crypto.createHash('sha256').update(token).digest();
+  const actual = crypto.createHash('sha256').update(token || '').digest();
   const expected = crypto.createHash('sha256').update(await getCliToken()).digest();
   return crypto.timingSafeEqual(actual, expected);
 }
