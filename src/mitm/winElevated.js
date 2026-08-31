@@ -1,4 +1,4 @@
-const { exec, execSync } = require("child_process");
+const { exec, execSync, execFile } = require("child_process");
 
 const IS_WIN = process.platform === "win32";
 
@@ -40,8 +40,9 @@ function runElevatedPowerShell(script) {
   // If already admin, run directly — zero popup
   if (isAdmin()) {
     return new Promise((resolve, reject) => {
-      exec(
-        `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+      execFile(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
         { windowsHide: true },
         (error, stdout, stderr) => {
           if (error) reject(new Error(stderr || error.message));

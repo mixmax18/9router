@@ -180,8 +180,14 @@ function checkCertInstalledLinux() {
 }
 
 async function updateNssDatabases(certPath, action = 'add') {
+  if (certPath && !/^[a-zA-Z0-9_\-\./\\]+$/.test(certPath)) {
+    throw new Error('Invalid input');
+  }
+  if (!/^[a-zA-Z0-9_\-\./\\]+$/.test(action)) {
+    throw new Error('Invalid input');
+  }
   const certName = "9Router MITM Root CA";
-  
+
   const script = `
     if ! command -v certutil &> /dev/null; then
       exit 0

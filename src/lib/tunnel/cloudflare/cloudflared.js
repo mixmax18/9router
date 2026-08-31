@@ -407,6 +407,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate) {
 // Boundary check ensures :20128 doesn't match :201280 or :202128.
 function killCloudflaredByPort(port) {
   if (!port) return;
+  if (!/^[0-9]+$/.test(port)) throw new Error('Invalid input');
   try {
     if (IS_WINDOWS) {
       const psCmd = `Get-CimInstance Win32_Process -Filter \\"Name='cloudflared.exe'\\" | Where-Object { $_.CommandLine -match ':${port}(\\D|$)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
