@@ -51,8 +51,13 @@ function copyRecursive(src, dest) {
       continue;
     }
 
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
+    const srcPath = path.resolve(path.resolve(src), entry.name);
+    const destPath = path.resolve(path.resolve(dest), entry.name);
+    const srcRelative = path.relative(path.resolve(src), srcPath);
+    const destRelative = path.relative(path.resolve(dest), destPath);
+    if (srcRelative.startsWith('..') || path.isAbsolute(srcRelative) || destRelative.startsWith('..') || path.isAbsolute(destRelative)) {
+      continue;
+    }
 
     // Skip broken symlinks (common in workspace setups)
     try {
@@ -82,15 +87,17 @@ function copyRecursive(src, dest) {
 }
 
 function resolveStandaloneBuild(appDir, buildDistDir) {
-  const legacyStandaloneRoot = path.join(appDir, ".next", "standalone");
-  const resolvedStandaloneRoot = path.join(buildDistDir, "standalone");
+  const resolvedAppDir = path.resolve(appDir);
+  const resolvedBuildDistDir = path.resolve(buildDistDir);
+  const legacyStandaloneRoot = path.join(resolvedAppDir, ".next", "standalone");
+  const resolvedStandaloneRoot = path.join(resolvedBuildDistDir, "standalone");
   let standaloneRoot = fs.existsSync(resolvedStandaloneRoot)
     ? resolvedStandaloneRoot
     : legacyStandaloneRoot;
 
   // Next.js 16 nests standalone output under the project name when
   // NEXT_TRACING_ROOT_MODE=workspace, e.g. standalone/9router/server.js.
-  const pkgName = path.basename(appDir);
+  const pkgName = path.basename(resolvedAppDir);
   const nestedRoot = path.join(standaloneRoot, pkgName);
   if (fs.existsSync(path.join(nestedRoot, "server.js")) && !fs.existsSync(path.join(standaloneRoot, "server.js"))) {
     console.log(`ℹ️  Detected nested standalone output: ${pkgName}/`);
@@ -122,7 +129,12 @@ function copyStandaloneBuild(appDir, buildDistDir, cliAppDir) {
 }
 
 function mergeServerArtifacts(buildDistDir, cliAppDir) {
-  const serverSrc = path.join(buildDistDir, "server");
+  const baseBuild = path.resolve(buildDistDir);
+  const serverSrc = path.resolve(baseBuild, "server");
+  const relBuild = path.relative(baseBuild, serverSrc);
+  if (relBuild.startsWith('..') || path.isAbsolute(relBuild)) {
+    throw new Error(`Invalid path`);
+  }
   const serverDest = path.join(cliAppDir, buildDistDirName, "server");
   if (!fs.existsSync(serverSrc)) {
     throw new Error(`Complete Next.js server build not found: ${serverSrc}`);
@@ -135,9 +147,16 @@ function assertRequiredApiArtifacts(cliAppDir) {
     "app/api/v1/chat/completions/route.js",
     "app/api/v1/messages/route.js",
   ];
-  const serverDir = path.join(cliAppDir, buildDistDirName, "server");
+  const serverDir = path.resolve(path.join(cliAppDir, buildDistDirName, "server"));
   const missingArtifacts = requiredArtifacts
-    .map((artifact) => path.join(serverDir, artifact))
+    .map((artifact) => {
+      const target = path.resolve(serverDir, artifact);
+      const relative = path.relative(serverDir, target);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error('Invalid artifact path');
+      }
+      return target;
+    })
     .filter((artifact) => !fs.existsSync(artifact));
 
   if (missingArtifacts.length > 0) {

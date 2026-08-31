@@ -25,7 +25,10 @@ const APP_LABEL = "com.9router.autostart";
  */
 function getCliJsPath(cliPath) {
   if (cliPath) {
-    const resolved = path.resolve(cliPath);
+    const base = path.resolve(__dirname, "..", "..", "..");
+    const resolved = path.resolve(base, cliPath);
+    const relative = path.relative(base, resolved);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
     if (fs.existsSync(resolved)) return resolved;
   }
   if (process.argv[1]) {

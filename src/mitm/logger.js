@@ -53,7 +53,11 @@ function dumpRequest(req, bodyBuffer, tag = "raw") {
   try {
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const slug = slugify((req.headers.host || "") + req.url);
-    const file = path.join(DUMP_DIR, `${ts}_${tag}_${slug}.req.json`);
+    const base = path.resolve(DUMP_DIR);
+    const target = path.resolve(base, `${ts}_${tag}_${slug}.req.json`);
+    const rel = path.relative(base, target);
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    const file = target;
     let parsed = null;
     try { parsed = JSON.parse(bodyBuffer.toString()); } catch { /* not JSON */ }
     fs.writeFileSync(file, JSON.stringify({
@@ -73,7 +77,11 @@ function createResponseDumper(req, tag = "raw") {
   if (isBlacklisted(req.url)) return null;
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const slug = slugify((req.headers.host || "") + req.url);
-  const file = path.join(DUMP_DIR, `${ts}_${tag}_${slug}.res.txt`);
+  const base = path.resolve(DUMP_DIR);
+  const target = path.resolve(base, `${ts}_${tag}_${slug}.res.txt`);
+  const rel = path.relative(base, target);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return null;
+  const file = target;
   let status = 0;
   let headers = {};
   const chunks = [];
