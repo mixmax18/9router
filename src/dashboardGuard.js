@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { getSettings, validateApiKey } from "@/lib/localDb";
 import { getConsistentMachineId } from "@/shared/utils/machineId";
@@ -16,7 +17,9 @@ async function getCliToken() {
 async function hasValidCliToken(request) {
   const token = request.headers.get(CLI_TOKEN_HEADER);
   if (!token) return false;
-  return token === await getCliToken();
+  const actual = crypto.createHash('sha256').update(token).digest();
+  const expected = crypto.createHash('sha256').update(await getCliToken()).digest();
+  return crypto.timingSafeEqual(actual, expected);
 }
 
 // Public API paths — no auth required (LLM API has its own key auth inside handler).
