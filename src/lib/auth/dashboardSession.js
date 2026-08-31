@@ -78,5 +78,7 @@ export async function verifyDashboardPassword(password) {
   const storedHash = settings?.password;
   if (storedHash) return bcrypt.compare(password, storedHash);
   const initialPassword = process.env.INITIAL_PASSWORD || DEFAULT_PASSWORD;
-  return password === initialPassword;
+  const actual = crypto.createHash('sha256').update(password).digest();
+  const expected = crypto.createHash('sha256').update(initialPassword).digest();
+  return crypto.timingSafeEqual(actual, expected);
 }
