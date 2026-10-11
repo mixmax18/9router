@@ -24,7 +24,7 @@ concurrency:
   queue: max
 
 env:
-  DOCKERHUB_IMAGE: decolua/9router
+  DOCKERHUB_IMAGE: mixmax18/9router
 
 jobs:
   prepare:
@@ -104,7 +104,7 @@ jobs:
           }
 
           const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-          const publishDockerHub = process.env.REPOSITORY === "decolua/9router";
+          const publishDockerHub = process.env.REPOSITORY === "mixmax18/9router";
           const ghcrImage = `ghcr.io/${process.env.REPOSITORY.toLowerCase()}`;
           const isPrerelease = version.includes("-");
           const promoteLatest = (process.env.EVENT_NAME === "push" && !isPrerelease)
