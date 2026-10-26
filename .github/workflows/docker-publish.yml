@@ -1,15 +1,13 @@
 name: Build and Push Docker Images
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       release_tag:
         description: "Existing vX.Y.Z tag to publish"
         required: true
         type: string
+
       promote_latest:
         description: "Promote this republish to latest"
         required: false
