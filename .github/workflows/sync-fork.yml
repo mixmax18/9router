@@ -1,5 +1,5 @@
 
-name: Sync fork with upstream
+name: Sync fork
 
 on:
   schedule:
