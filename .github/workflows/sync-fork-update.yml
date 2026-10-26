@@ -1,10 +1,14 @@
-
 name: Sync fork
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      backfill_tag:
+        description: "Optional existing upstream tag to build, e.g. v0.5.81"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -13,10 +17,12 @@ permissions:
 concurrency:
   group: sync-fork
   cancel-in-progress: false
+  queue: max
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout fork
@@ -25,75 +31,100 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      - name: Sync upstream master
+      - name: Sync upstream master, preserving .github
+        shell: bash
         run: |
           set -euo pipefail
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git remote add upstream https://github.com/decolua/9router.git
-          git fetch --no-tags upstream \
-            +refs/heads/master:refs/remotes/upstream/master
+          git fetch --no-tags upstream master
 
           if git merge-base --is-ancestor upstream/master HEAD; then
-            echo "Master already up to date"
-          else
-            git merge --no-commit --no-ff upstream/master || true
-
-            # Keep fork-owned GitHub configuration
-            git restore --source=HEAD --staged --worktree -- .github/
-
-            if [[ -n "$(git ls-files --unmerged)" ]]; then
-              echo "Unresolved conflicts outside .github"
-              git ls-files --unmerged
-              exit 1
-            fi
-
-            git rev-parse -q --verify MERGE_HEAD >/dev/null
-            git diff --cached --quiet HEAD -- .github/
-
-            git commit -m "Sync upstream master excluding .github"
-            git push origin HEAD:master
+            echo "Upstream master is already merged"
+            exit 0
           fi
 
-      - name: Mirror tags and trigger Docker build
+          # Merge upstream code but retain the fork's tracked .github/ files.
+          if ! git merge --no-commit --no-ff upstream/master; then
+            git rev-parse -q --verify MERGE_HEAD >/dev/null || {
+              echo "Merge failed before entering a merge state"
+              exit 1
+            }
+          fi
+
+          git restore --source=HEAD --staged --worktree -- .github/
+
+          if [[ -n "$(git ls-files --unmerged)" ]]; then
+            echo "Unresolved conflicts outside .github/:"
+            git ls-files --unmerged
+            exit 1
+          fi
+
+          git diff --cached --quiet HEAD -- .github/
+          git commit -m "Sync upstream master (preserve .github)"
+          git push origin HEAD:master
+
+      - name: Mirror upstream tags and dispatch Docker publish
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          BACKFILL_TAG: ${{ inputs.backfill_tag || '' }}
         run: |
           set -euo pipefail
 
           git fetch --quiet upstream --tags
+          upstream_tags="$(git ls-remote --refs --tags upstream 'refs/tags/v*')"
+          found_backfill=false
+          dispatched=0
 
-          while IFS= read -r tag; do
+          if [[ -n "$BACKFILL_TAG" && ! "$BACKFILL_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid backfill_tag: $BACKFILL_TAG" >&2
+            exit 1
+          fi
 
-            # Only accept version-style tags
-            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+($|-) ]]; then
-              continue
+          while IFS=$'\t' read -r upstream_sha ref; do
+            [[ -n "${upstream_sha:-}" ]] || continue
+            tag="${ref#refs/tags/}"
+
+            # Match the Docker workflow's vX.Y.Z-style release tags.
+            [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || continue
+
+            [[ "$tag" == "$BACKFILL_TAG" ]] && found_backfill=true
+
+            fork_sha="$(git ls-remote --refs --tags origin "refs/tags/$tag" | awk '{print $1}')"
+            if [[ -n "$fork_sha" && "$fork_sha" != "$upstream_sha" ]]; then
+              echo "Tag mismatch for $tag: upstream=$upstream_sha fork=$fork_sha" >&2
+              exit 1
             fi
 
-            if git ls-remote --exit-code --refs --tags \
-              origin "refs/tags/${tag}" >/dev/null 2>&1; then
-              continue
+            newly_mirrored=false
+            if [[ -z "$fork_sha" ]]; then
+              echo "Mirroring new tag: $tag"
+              git push origin "refs/tags/$tag:refs/tags/$tag"
+              newly_mirrored=true
             fi
 
-            echo "New upstream release: ${tag}"
+            if [[ "$newly_mirrored" == true || ( -n "$BACKFILL_TAG" && "$tag" == "$BACKFILL_TAG" ) ]]; then
+              # Don't move :latest backwards when backfilling an older release.
+              promote_latest=false
+              if [[ "$newly_mirrored" == true && "$tag" != *-* ]]; then
+                promote_latest=true
+              fi
 
-            # Mirror the tag into the fork
-            git push origin "refs/tags/${tag}"
-
-            # Stable releases promote latest
-            promote="true"
-            if [[ "$tag" == *-* ]]; then
-              promote="false"
+              echo "Dispatching Docker release $tag (latest=$promote_latest)"
+              gh workflow run build-and-push.yml \
+                --repo "$GITHUB_REPOSITORY" \
+                --ref master \
+                -f release_tag="$tag" \
+                -f promote_latest="$promote_latest"
+              dispatched=$((dispatched + 1))
             fi
+          done < <(printf '%s\n' "$upstream_tags" | sort -k2,2V)
 
-            # Explicitly trigger Docker build
-            gh workflow run build-and-push.yml \
-              --ref master \
-              -f release_tag="$tag" \
-              -f promote_latest="$promote"
+          if [[ -n "$BACKFILL_TAG" && "$found_backfill" != true ]]; then
+            echo "Backfill tag $BACKFILL_TAG not found upstream" >&2
+            exit 1
+          fi
 
-            echo "Docker build requested for ${tag}"
-
-          done < <(git tag --list 'v*' --sort=version:refname)
+          echo "Docker publish workflows dispatched: $dispatched"
