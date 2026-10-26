@@ -1,12 +1,14 @@
+
 name: Sync fork with upstream
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: sync-fork
@@ -15,26 +17,83 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    steps:
-      - name: Merge upstream master into fork
-        env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
-        run: |
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/merge-upstream" -f branch=master
 
-      - name: Mirror upstream tags one by one
-        env:
-          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Sync upstream master
         run: |
           set -euo pipefail
-          git clone --quiet --no-checkout --filter=blob:none \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
-          cd repo
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git remote add upstream https://github.com/decolua/9router.git
-          git fetch --quiet upstream --tags
-          for t in $(git tag --list 'v*'); do
-            if ! git ls-remote --exit-code --tags origin "refs/tags/${t}" >/dev/null 2>&1; then
-              echo "pushing ${t}"
-              git push origin "refs/tags/${t}"
+          git fetch --no-tags upstream \
+            +refs/heads/master:refs/remotes/upstream/master
+
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "Master already up to date"
+          else
+            git merge --no-commit --no-ff upstream/master || true
+
+            # Keep fork-owned GitHub configuration
+            git restore --source=HEAD --staged --worktree -- .github/
+
+            if [[ -n "$(git ls-files --unmerged)" ]]; then
+              echo "Unresolved conflicts outside .github"
+              git ls-files --unmerged
+              exit 1
             fi
-          done
+
+            git rev-parse -q --verify MERGE_HEAD >/dev/null
+            git diff --cached --quiet HEAD -- .github/
+
+            git commit -m "Sync upstream master excluding .github"
+            git push origin HEAD:master
+          fi
+
+      - name: Mirror tags and trigger Docker build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git fetch --quiet upstream --tags
+
+          while IFS= read -r tag; do
+
+            # Only accept version-style tags
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+($|-) ]]; then
+              continue
+            fi
+
+            if git ls-remote --exit-code --refs --tags \
+              origin "refs/tags/${tag}" >/dev/null 2>&1; then
+              continue
+            fi
+
+            echo "New upstream release: ${tag}"
+
+            # Mirror the tag into the fork
+            git push origin "refs/tags/${tag}"
+
+            # Stable releases promote latest
+            promote="true"
+            if [[ "$tag" == *-* ]]; then
+              promote="false"
+            fi
+
+            # Explicitly trigger Docker build
+            gh workflow run build-and-push.yml \
+              --ref master \
+              -f release_tag="$tag" \
+              -f promote_latest="$promote"
+
+            echo "Docker build requested for ${tag}"
+
+          done < <(git tag --list 'v*' --sort=version:refname)
