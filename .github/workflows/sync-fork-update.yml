@@ -69,6 +69,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          WORKFLOW_SYNC_TOKEN: ${{ secrets.WORKFLOW_SYNC_TOKEN }}
           BACKFILL_TAG: ${{ inputs.backfill_tag || '' }}
         run: |
           set -euo pipefail
@@ -101,7 +102,21 @@ jobs:
             newly_mirrored=false
             if [[ -z "$fork_sha" ]]; then
               echo "Mirroring new tag: $tag"
-              git push origin "refs/tags/$tag:refs/tags/$tag"
+              # The default GITHUB_TOKEN cannot push a tag whose commit changes
+              # .github/workflows/*. Use a dedicated, workflow-authorized token.
+              if [[ -z "${WORKFLOW_SYNC_TOKEN:-}" ]]; then
+                echo "::error::Configure WORKFLOW_SYNC_TOKEN with Contents and Workflows write permission for this repository" >&2
+                exit 1
+              fi
+
+              # actions/checkout persists GITHUB_TOKEN in Git's extraheader.
+              # Suppress that credential for this one push, and pass the dedicated
+              # token through an ephemeral HTTP header instead of a remote URL.
+              auth_header="$(printf 'x-access-token:%s' "$WORKFLOW_SYNC_TOKEN" | base64 -w0)"
+              git -c http.https://github.com/.extraheader= \\
+                  -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \\
+                  push origin "refs/tags/$tag:refs/tags/$tag"
+              unset auth_header
               newly_mirrored=true
             fi
 
